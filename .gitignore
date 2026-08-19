@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.ruff_cache/
+.pytest_cache/
+creds.toml
+*.creds.toml
+.vscode
