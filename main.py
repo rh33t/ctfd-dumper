@@ -22,7 +22,7 @@ from render import slugify
 
 VERSION = "0.1.0"
 
-# Fields a --creds file or the environment can supply. The command line still wins.
+# Fields a --config file or the environment can supply. The command line still wins.
 ENV_KEYS = {
     "url": "CTFD_URL",
     "token": "CTFD_TOKEN",
@@ -38,11 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
         prog="main.py",
         description="Dump challenges, files and metadata from a CTFd instance "
         "into a writeup repository.",
-        epilog="Every credential option also reads from a --creds TOML file and from an "
+        epilog="Every credential option also reads from a --config TOML file and from an "
         "environment variable (CTFD_URL, CTFD_TOKEN, CTFD_NAME, CTFD_OUTPUT, CTFD_EMAIL, "
-        "CTFD_PASSWORD); precedence is command line, then --creds, then environment.",
+        "CTFD_PASSWORD); precedence is command line, then --config, then environment.",
     )
-    # Credential defaults resolve later (resolve_sources) so --creds can sit between the
+    # Credential defaults resolve later (resolve_sources) so --config can sit between the
     # command line and the environment; leaving them None here marks "not passed".
     parser.add_argument("-u", "--url", help="CTFd base URL")
     parser.add_argument(
@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory (defaults to a slug of the host)",
     )
     parser.add_argument(
-        "--creds",
+        "--config",
         metavar="FILE",
         help="TOML file supplying any of url, token, email, password, name, output",
     )
@@ -89,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def load_creds(path: str, parser: argparse.ArgumentParser) -> dict[str, str]:
+def load_config(path: str, parser: argparse.ArgumentParser) -> dict[str, str]:
     """Read credential fields from a TOML file.
 
     Keys may sit at the top level or under a [ctfd] table. TOML's quoting is explicit,
@@ -100,28 +100,28 @@ def load_creds(path: str, parser: argparse.ArgumentParser) -> dict[str, str]:
         with open(path, "rb") as fh:
             data = tomllib.load(fh)
     except OSError as exc:
-        parser.error(f"cannot read --creds file: {exc}")
+        parser.error(f"cannot read --config file: {exc}")
     except tomllib.TOMLDecodeError as exc:
-        parser.error(f"invalid --creds file: {exc}")
+        parser.error(f"invalid --config file: {exc}")
     table = data.get("ctfd", data)
-    creds: dict[str, str] = {}
+    config: dict[str, str] = {}
     for key in ENV_KEYS:
         if key not in table:
             continue
         value = table[key]
         if not isinstance(value, str):
-            parser.error(f"--creds file: {key} must be a string, got {type(value).__name__}")
-        creds[key] = value
-    return creds
+            parser.error(f"--config file: {key} must be a string, got {type(value).__name__}")
+        config[key] = value
+    return config
 
 
 def resolve_sources(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    """Fill unset credential fields from --creds, then the environment. The command
+    """Fill unset credential fields from --config, then the environment. The command
     line already sat in args, so anything still None falls back in that order."""
-    creds = load_creds(args.creds, parser) if args.creds else {}
+    config = load_config(args.config, parser) if args.config else {}
     for key, env in ENV_KEYS.items():
         if getattr(args, key) is None:
-            value = creds.get(key) or os.environ.get(env)
+            value = config.get(key) or os.environ.get(env)
             if value is not None:
                 setattr(args, key, value)
 

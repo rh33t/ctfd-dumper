@@ -40,7 +40,7 @@ CTFs first.
 
 ## Save your login in a file
 
-Typing the URL and token every time is tedious. Put them in a `creds.toml` file:
+Typing the URL and token every time is tedious. Put them in a `config.toml` file:
 
 ```toml
 [ctfd]
@@ -54,7 +54,7 @@ token = "ctfd_xxx"
 Then just:
 
 ```sh
-python main.py --creds creds.toml
+python main.py --config config.toml
 ```
 
 Passwords with `%`, `@`, or `#` work as-is, no escaping. **This file holds your login,

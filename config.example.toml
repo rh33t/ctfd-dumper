@@ -1,0 +1,14 @@
+# Copy to config.toml and edit.
+
+[ctfd]
+url = "https://myctf.ctfd.io"
+
+token = "ctfd_your_token_here"
+
+# Or use email and password instead of a token.
+# email = "me@example.com"
+# password = "password"
+
+# Optional.
+# name = "MyCTF"
+# output = "~/ctfs/myctf"

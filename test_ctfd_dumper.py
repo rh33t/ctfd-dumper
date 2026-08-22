@@ -540,38 +540,38 @@ class TestCli(unittest.TestCase):
             cli.main(["--url", "https://ctf.example.com"])
         self.assertEqual(caught.exception.code, 2)
 
-    def test_creds_file_fills_unset_fields_and_the_command_line_wins(self) -> None:
+    def test_config_file_fills_unset_fields_and_the_command_line_wins(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            creds = Path(tmp) / "creds.toml"
+            config = Path(tmp) / "config.toml"
             # A password with % @ and quotes is exactly what tripped up ini parsing.
-            creds.write_text(
+            config.write_text(
                 '[ctfd]\nurl = "https://fromfile.example.com"\ntoken = "tok_file"\n'
                 'name = "FileCTF"\npassword = "pw%with@\\"quotes"\n'
             )
             parser = cli.build_parser()
 
-            args = parser.parse_args(["--creds", str(creds)])
+            args = parser.parse_args(["--config", str(config)])
             cli.resolve_sources(args, parser)
             self.assertEqual(args.url, "https://fromfile.example.com")
             self.assertEqual(args.token, "tok_file")
             self.assertEqual(args.name, "FileCTF")
             self.assertEqual(args.password, 'pw%with@"quotes')
 
-            args = parser.parse_args(["--creds", str(creds), "--token", "tok_cli"])
+            args = parser.parse_args(["--config", str(config), "--token", "tok_cli"])
             cli.resolve_sources(args, parser)
             self.assertEqual(args.token, "tok_cli")
 
-    def test_a_missing_creds_file_is_a_usage_error(self) -> None:
+    def test_a_missing_config_file_is_a_usage_error(self) -> None:
         with self.assertRaises(SystemExit) as caught:
-            cli.main(["--creds", "/no/such/creds.toml", "--url", "https://ctf.example.com"])
+            cli.main(["--config", "/no/such/config.toml", "--url", "https://ctf.example.com"])
         self.assertEqual(caught.exception.code, 2)
 
-    def test_a_malformed_creds_file_is_a_usage_error(self) -> None:
+    def test_a_malformed_config_file_is_a_usage_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            creds = Path(tmp) / "creds.toml"
-            creds.write_text("this is not = valid = toml")
+            config = Path(tmp) / "config.toml"
+            config.write_text("this is not = valid = toml")
             with self.assertRaises(SystemExit) as caught:
-                cli.main(["--creds", str(creds)])
+                cli.main(["--config", str(config)])
             self.assertEqual(caught.exception.code, 2)
 
     def test_the_output_directory_defaults_to_a_slug_of_the_host(self) -> None:

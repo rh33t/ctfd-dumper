@@ -5,6 +5,6 @@ venv/
 .env
 .ruff_cache/
 .pytest_cache/
-creds.toml
-*.creds.toml
+config.toml
+*.config.toml
 .vscode
