@@ -21,6 +21,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import client as client_mod
+import dumper
 import main as cli
 import render
 from client import CTFdClient, CTFdError, safe_filename
@@ -112,6 +113,23 @@ class ServerTestCase(unittest.TestCase):
         self.addCleanup(self.server.shutdown)
         self.out = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.out, True)
+        self.data = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.data, True)
+        old_data_home = os.environ.get("XDG_DATA_HOME")
+        os.environ["XDG_DATA_HOME"] = str(self.data)
+        self.addCleanup(self._restore_data_home, old_data_home)
+
+    @staticmethod
+    def _restore_data_home(value: str | None) -> None:
+        if value is None:
+            os.environ.pop("XDG_DATA_HOME", None)
+        else:
+            os.environ["XDG_DATA_HOME"] = value
+
+    def manifest(self) -> Path:
+        host = self.url.split("//")[-1].split("/")[0]
+        settings = dumper.Settings(self.url, host, self.out)
+        return dumper.manifest_path(settings)
 
     def publish(self, *challenges: dict) -> None:
         routes["/api/v1/challenges"] = api(list(challenges))
@@ -340,9 +358,24 @@ class TestDump(ServerTestCase):
         self.assertIn("# Baby RSA", readme.read_text())
         self.assertIn("## Solution", readme.read_text())
         self.assertEqual((readme.parent / "files" / "chall.zip").read_bytes(), b"contents")
-        self.assertIn("Baby RSA", (self.out / "README.md").read_text())
-        self.assertTrue((self.out / ".ctfd-dumper" / "manifest.json").exists())
-        self.assertTrue((self.out / ".ctfd-dumper" / "raw" / "1.json").exists())
+        index = (self.out / "challenges" / "README.md").read_text()
+        self.assertIn("[Baby RSA](<crypto/baby-rsa/>)", index)
+        manifest = self.manifest()
+        self.assertTrue(manifest.exists())
+        self.assertEqual(json.loads(manifest.read_text())["challenges"]["1"]["raw"]["name"], "Baby RSA")
+        self.assertFalse((self.out / ".ctfd-dumper").exists())
+
+    def test_a_legacy_raw_directory_is_folded_into_the_manifest(self) -> None:
+        self.publish(challenge(1, "Baby RSA"))
+        legacy = self.out / ".ctfd-dumper" / "raw"
+        legacy.mkdir(parents=True)
+        (legacy / "1.json").write_text('{"old": true}\n')
+
+        self.assertEqual(self.run_cli(), 0)
+
+        manifest = json.loads(self.manifest().read_text())
+        self.assertEqual(manifest["challenges"]["1"]["raw"]["name"], "Baby RSA")
+        self.assertFalse(legacy.parent.exists())
 
     def test_a_second_run_changes_nothing_on_disk(self) -> None:
         routes["/files/chall.zip"] = (200, {}, b"contents")
@@ -353,12 +386,7 @@ class TestDump(ServerTestCase):
         self.run_cli()
 
         after = {p: p.read_bytes() for p in self.out.rglob("*") if p.is_file()}
-        # The manifest restamps its timestamp; nothing the user reads may change.
-        manifest = self.out / ".ctfd-dumper" / "manifest.json"
-        self.assertEqual(
-            {k: v for k, v in before.items() if k != manifest},
-            {k: v for k, v in after.items() if k != manifest},
-        )
+        self.assertEqual(before, after)
 
     def test_a_changed_description_keeps_the_writeup(self) -> None:
         self.publish(challenge(1, "Baby RSA"))
@@ -486,7 +514,7 @@ class TestDump(ServerTestCase):
     def test_a_corrupt_manifest_degrades_to_a_full_redump(self) -> None:
         self.publish(challenge(1, "Baby RSA"))
         self.run_cli()
-        (self.out / ".ctfd-dumper" / "manifest.json").write_text("{ not json")
+        self.manifest().write_text("{ not json")
 
         self.assertEqual(self.run_cli(), 0)
 

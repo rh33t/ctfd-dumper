@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -31,7 +33,7 @@ from render import (
 )
 
 MANIFEST_VERSION = 1
-STATE_DIR = ".ctfd-dumper"
+LEGACY_STATE_DIR = ".ctfd-dumper"
 
 # Only fields that reach the rendered README participate in the change hash. A
 # shifting solve count or a re-signed file token must not mark everything dirty.
@@ -86,20 +88,26 @@ class ChallengeRecord:
     path: str
     detail_hash: str
     files: dict[str, FileRecord] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict)
 
 
-def manifest_path(output: Path) -> Path:
-    return output / STATE_DIR / "manifest.json"
+def manifest_path(settings: Settings) -> Path:
+    """Per-CTF state in the user's local data directory, outside the dump."""
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return data_home / "ctfd-dumper" / f"{slugify(settings.name) or 'ctf'}.json"
 
 
-def load_manifest(output: Path) -> dict[int, ChallengeRecord]:
+def load_manifest(settings: Settings) -> dict[int, ChallengeRecord]:
     """Read the previous run's records, treating an unreadable manifest as absent.
 
     Damage of any kind must degrade into a full redump, never into a crash that
     leaves the user unable to run the tool at all.
     """
     try:
-        data = json.loads(manifest_path(output).read_text(encoding="utf-8"))
+        path = manifest_path(settings)
+        legacy = settings.output / LEGACY_STATE_DIR / "manifest.json"
+        source = path if path.exists() else legacy
+        data = json.loads(source.read_text(encoding="utf-8"))
         if not isinstance(data, dict) or data.get("version") != MANIFEST_VERSION:
             return {}
         return {
@@ -111,6 +119,7 @@ def load_manifest(output: Path) -> dict[int, ChallengeRecord]:
                     name: FileRecord(meta.get("sha256", ""), meta.get("size", 0))
                     for name, meta in (entry.get("files") or {}).items()
                 },
+                raw=entry.get("raw") if isinstance(entry.get("raw"), dict) else {},
             )
             for cid, entry in (data.get("challenges") or {}).items()
         }
@@ -119,7 +128,7 @@ def load_manifest(output: Path) -> dict[int, ChallengeRecord]:
 
 
 def save_manifest(settings: Settings, records: dict[int, ChallengeRecord]) -> None:
-    path = manifest_path(settings.output)
+    path = manifest_path(settings)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": MANIFEST_VERSION,
@@ -134,6 +143,7 @@ def save_manifest(settings: Settings, records: dict[int, ChallengeRecord]) -> No
                     name: {"sha256": file.sha256, "size": file.size}
                     for name, file in sorted(record.files.items())
                 },
+                "raw": record.raw,
             }
             for cid, record in sorted(records.items())
         },
@@ -142,6 +152,12 @@ def save_manifest(settings: Settings, records: dict[int, ChallengeRecord]) -> No
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+    # Older versions stored one JSON file per challenge. Once the combined
+    # manifest is safely in place, remove that redundant legacy directory.
+    legacy_state = settings.output / LEGACY_STATE_DIR
+    if legacy_state.is_dir():
+        shutil.rmtree(legacy_state)
 
 
 def challenge_hash(challenge: Challenge) -> str:
@@ -185,7 +201,7 @@ class _Result:
 
 def dump(settings: Settings, client: CTFdClient) -> Summary:
     summary = Summary()
-    records = load_manifest(settings.output)
+    records = load_manifest(settings)
 
     challenges = client.list_challenges()
     visible = [c for c in challenges if not c.is_hidden]
@@ -221,10 +237,11 @@ def dump(settings: Settings, client: CTFdClient) -> Summary:
         if result.record is not None:
             records[item.challenge.id] = result.record
 
-    index = render_index(
-        settings.name, settings.url, [(item.challenge, item.rel_path) for item in planned]
-    )
-    _write_if_changed(settings.output / "README.md", index)
+    index_entries = [
+        (item.challenge, item.rel_path.removeprefix("challenges/")) for item in planned
+    ]
+    index = render_index(settings.name, settings.url, index_entries)
+    _write_if_changed(settings.output / "challenges" / "README.md", index)
     save_manifest(settings, records)
     return summary
 
@@ -360,12 +377,6 @@ def _process(
         files[key] = FileRecord(sha256, size)
         result.downloaded += 1
 
-    if item.change != "unchanged" or settings.force:
-        raw_path = settings.output / STATE_DIR / "raw" / f"{challenge.id}.json"
-        _write_if_changed(
-            raw_path, json.dumps(item.raw, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-        )
-
     # Only link files that are actually on disk, so a failed download does not
     # leave a dead link in the writeup. With --no-files nothing is expected on
     # disk, so the list documents what the instance declares. Links scraped from
@@ -386,6 +397,7 @@ def _process(
         # An incomplete challenge gets no valid hash, so the next run retries it.
         detail_hash="" if result.errors else item.new_hash,
         files=files,
+        raw=item.raw,
     )
     return result
 

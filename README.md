@@ -68,12 +68,15 @@ Run `python main.py -h` for the full list.
 
 ```
 ~/ctfs/myctf/
-├── README.md                    index of all challenges, by category
-├── challenges/crypto/baby-rsa/
-│   ├── README.md                the challenge, plus a ## Solution section
-│   └── files/chall.zip          its attachments
-└── .ctfd-dumper/                internal bookkeeping
+└── challenges/
+    ├── README.md                index of all challenges, by category
+    └── crypto/baby-rsa/
+        ├── README.md            the challenge, plus a ## Solution section
+        └── files/chall.zip      its attachments
 ```
+
+Synchronization state stays outside the dump in
+`~/.local/share/ctfd-dumper/<ctf-name>.json` (or `$XDG_DATA_HOME/ctfd-dumper`).
 
 Each challenge page starts with tags Obsidian can read (`id`, `name`, `category`, `value`,
 `solved`, and more), so your dump works with Obsidian Dataview.
